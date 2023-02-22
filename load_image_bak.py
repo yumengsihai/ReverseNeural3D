@@ -4,10 +4,6 @@ from torch.utils.data import Dataset, random_split
 from torchvision.io import read_image
 from PIL import Image
 from torchvision import transforms
-import matplotlib.pyplot as plt
-from pathlib import Path
-import struct
-import numpy as np
 
 # NYU Depth Dataset V2
 # https://cs.nyu.edu/~silberman/datasets/nyu_depth_v2.html
@@ -15,13 +11,18 @@ import numpy as np
 # A Large-Scale Hierarchical Multi-View RGB-D Object Dataset
 # https://rgbd-dataset.cs.washington.edu/dataset/rgbd-dataset_full/
 class LSHMV_RGBD_Object_Dataset(Dataset):
-    def __init__(self, color_list, depth_list, color_transform=None, depth_transform=None, output_type='color_depth', channel=None):
+    def __init__(self, img_dir, color_transform=None, depth_transform=None, output_type='color_depth', channel=None):
         '''
         output_type can be chosen from 'color_depth', 'field', 'mask'
         '''
-
-        self.color_list = color_list
-        self.depth_list = depth_list
+        # self.img_labels = pd.read_csv(annotations_file)
+        # self.scene_list = ['scene_01', 'scene_02', 'scene_03', 'scene_04', 'scene_05', 'scene_06', 'scene_07', 
+        #                    'scene_08', 'scene_09', 'scene_10', 'scene_11', 'scene_12', 'scene_13', 'scene_14']
+        self.img_dir = img_dir
+        img_list = os.listdir(img_dir)
+        img_list.sort()
+        self.color_list = [value for value in img_list if "color" in value]
+        self.depth_list = [value for value in img_list if "depth" in value]
         self.color_transform = color_transform
         self.depth_transform = depth_transform
         self.channel = channel
@@ -31,21 +32,19 @@ class LSHMV_RGBD_Object_Dataset(Dataset):
         return len(self.color_list)
 
     def __getitem__(self, idx):
-        color_path = self.color_list[idx]
-        depth_path = self.depth_list[idx]
-
-        color_image = Image.fromarray(plt.imread(color_path))
-
+        color_path = os.path.join(self.img_dir, self.color_list[idx])
+        depth_path = os.path.join(self.img_dir, self.depth_list[idx])
+        # color_image = read_image(color_path)
+        # depth_image = read_image(depth_path)
+        color_image = Image.open(color_path)
         if self.channel:
             color_image = color_image.split()[self.channel]
-        depth_image = Image.fromarray(self.read_pfm(depth_path))
-        
+        depth_image = Image.open(depth_path)
         
         if self.color_transform:
             color_image = self.color_transform(color_image)
         if self.depth_transform:
             depth_image = self.depth_transform(depth_image)
-            # print(depth_image.shape)
         
         trans = transforms.ToTensor()
         if type(color_image) != torch.Tensor:
@@ -58,39 +57,14 @@ class LSHMV_RGBD_Object_Dataset(Dataset):
             field = torch.cat([color_image, depth_image], 0)
             # field = field.unsqueeze(0)
             return field
-        elif self.output_type == 'color_depth':
+        elif self.output_type == 'color_depth':        
             return color_image, depth_image
         elif self.output_type == 'mask':
             depth_image = self.depth_convert(depth_image)
             masks = self.load_img_mask(depth_image)
-
-            x = (color_image*masks).squeeze() # 8 1080 1920
-            return x, masks, self.color_list[idx]
+            return (color_image*masks).squeeze(), masks, self.img_dir.split('/')[-1]+'-'+self.color_list[idx]
         else:
             raise RuntimeError("Undefined output_type, can only be chosen from 'color_depth', 'field', 'mask'")
-
-
-    def read_pfm(self, filename):
-        with Path(filename).open('rb') as pfm_file:
- 
-            line1, line2, line3 = (pfm_file.readline().decode('latin-1').strip() for _ in range(3))
-            assert line1 in ('PF', 'Pf')
-            
-            channels = 3 if "PF" in line1 else 1
-            width, height = (int(s) for s in line2.split())
-            scale_endianess = float(line3)
-            bigendian = scale_endianess > 0
-            scale = abs(scale_endianess)
-
-            buffer = pfm_file.read()
-            samples = width * height * channels
-            assert len(buffer) == samples * 4
-            
-            fmt = f'{"<>"[bigendian]}{samples}f'
-            decoded = struct.unpack(fmt, buffer)
-            shape = (height, width, 3) if channels == 3 else (height, width)
-            return np.flipud(np.reshape(decoded, shape)) * scale
-
     
     def depth_convert(self, depth):
         # NaN to inf

@@ -12,74 +12,22 @@ import utils
 from prop_model import CNNpropCNN_default
 
 
-depth_dir = "../RGBD/disparity/"
-# path0_list = os.listdir(depth_dir)
-path0_list = ["TEST"]
-
-depth_list = [] # 所有pfm路径
-
-for list_path0 in path0_list:
-    path1 = os.path.join(depth_dir, list_path0) 
-    path1_list = os.listdir(path1)
-
-    for list_path1 in path1_list:
-        path2 = os.path.join(path1, list_path1)
-        path2_list = os.listdir(path2)
-
-        for list_path2 in path2_list:
-            path3 = os.path.join(path2, list_path2)
-            path3_list = os.listdir(path3)
-
-            for list_path3 in path3_list:
-                path4 = os.path.join(path3, list_path3)
-                path4_list = os.listdir(path4)
-
-                for list_path4 in path4_list:
-                    path5 = os.path.join(path4, list_path4)
-                    depth_list.append(path5)
-
-
-color_dir = "../RGBD/frames_cleanpass_webp/"
-# path0_list = os.listdir(depth_dir)
-path0_list = ["TEST"]
-
-color_list = [] # 所有color路径
-
-for list_path0 in path0_list:
-    path1 = os.path.join(color_dir, list_path0) 
-    path1_list = os.listdir(path1)
-
-    for list_path1 in path1_list:
-        path2 = os.path.join(path1, list_path1)
-        path2_list = os.listdir(path2)
-
-        for list_path2 in path2_list:
-            path3 = os.path.join(path2, list_path2)
-            path3_list = os.listdir(path3)
-
-            for list_path3 in path3_list:
-                path4 = os.path.join(path3, list_path3)
-                path4_list = os.listdir(path4)
-
-                for list_path4 in path4_list:
-                    path5 = os.path.join(path4, list_path4)
-                    color_list.append(path5)
-
+img_dir = '/home/wenbin/Downloads/rgbd-scenes-v2/imgs/scene_01'
 
 tf = transforms.Compose([
     Resize((1080,1920)),
     ToTensor()
 ])
+nyu_dataset = LSHMV_RGBD_Object_Dataset('/home/wenbin/Downloads/rgbd-scenes-v2/imgs/scene_01',
+                                        color_transform=tf, depth_transform=tf,
+                                        channel=1, output_type='mask')
 
-nyu_dataset = LSHMV_RGBD_Object_Dataset(color_list=color_list, depth_list=depth_list,
-                                    channel=1 ,output_type='mask', color_transform=tf, depth_transform=tf)
-
-
-tf = transforms.Compose([
-    Resize((1080,1920)),
-    ToTensor()
-])
-
+for i in range(2, 15):
+    scene_name = 'scene_' + str(i).zfill(2)
+    nyu_dataset += LSHMV_RGBD_Object_Dataset('/home/wenbin/Downloads/rgbd-scenes-v2/imgs/'+scene_name,
+                                             color_transform=tf, depth_transform=tf,
+                                             channel=1, output_type='mask')
+    
     
 train_data_size = int(0.8*len(nyu_dataset))
 test_data_size = len(nyu_dataset)-train_data_size
@@ -100,6 +48,8 @@ forward_prop = forward_prop.cuda()
 for param in forward_prop.parameters():
     param.requires_grad = False
 loss_fn = nn.MSELoss().cuda()
+
+
 
 learning_rate = 1e-2
 optimizer = torch.optim.SGD(reverse_prop.parameters(), lr=learning_rate)
@@ -135,10 +85,12 @@ for i in range(epoch):
         final_amp = outputs_amp*masks
         
         loss = loss_fn(final_amp, imgs)
-        a = utils.target_planes_to_one_image(final_amp, masks)
-        b = utils.target_planes_to_one_image(imgs, masks)
         
-        psnr = utils.calculate_psnr(a, b)
+        # a = utils.target_planes_to_one_image(final_amp, masks)
+        # b = utils.target_planes_to_one_image(imgs, masks)
+        
+        with torch.no_grad(): 
+            psnr = utils.calculate_psnr(utils.target_planes_to_one_image(final_amp, masks), utils.target_planes_to_one_image(imgs, masks))
         
         writer.add_scalar("train_loss", loss.item(), total_train_step)
         writer.add_scalar("train_psnr", psnr.item(), total_train_step)
@@ -162,6 +114,7 @@ for i in range(epoch):
     # test the model after every epoch
     reverse_prop.eval()
     total_test_loss = 0
+    total_test_psnr = 0
     test_items_count = 0
     with torch.no_grad():
         for imgs_masks_id in test_dataloader:
@@ -179,20 +132,27 @@ for i in range(epoch):
             
             # outputs = reverse_prop(imgs)
             loss = loss_fn(final_amp, imgs)
+            psnr = utils.calculate_psnr(utils.target_planes_to_one_image(final_amp, masks), utils.target_planes_to_one_image(imgs, masks))
+            
             total_test_loss += loss
+            total_test_psnr += psnr
             test_items_count += 1
-    average_test_loss = total_test_loss/test_items_count
-    if best_test_loss > average_test_loss:
-        best_test_loss = average_test_loss
-        # save model
-        path = f"runs/{time_str}/model/"
-        if not os.path.exists(path):
-            os.makedirs(path) 
-        torch.save(reverse_prop, f"runs/{time_str}/model/reverse_3d_prop_{time_str}_best_loss.pth")
-        print("model saved!")
+        
+        average_test_loss = total_test_loss/test_items_count
+        average_test_psnr = total_test_psnr/test_items_count
+        if best_test_loss > average_test_loss:
+            best_test_loss = average_test_loss
+            # save model
+            path = f"runs/{time_str}/model/"
+            if not os.path.exists(path):
+                os.makedirs(path) 
+            torch.save(reverse_prop, f"runs/{time_str}/model/reverse_3d_prop_{time_str}_best_loss.pth")
+            print("model saved!")
             
     print(f"Average Test Loss: {average_test_loss}")
+    print(f"Average Test PSNR: {average_test_psnr}")
     writer.add_scalar("average_test_loss", average_test_loss.item(), total_train_step)
+    writer.add_scalar("average_test_psnr", average_test_psnr.item(), total_train_step)
     
     
 
