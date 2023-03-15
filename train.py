@@ -12,7 +12,8 @@ import utils
 from prop_model import CNNpropCNN_default
 
 
-depth_dir = "../RGBD/disparity/"
+# depth_dir = "../RGBD/disparity/"
+depth_dir = '/home/wenbin/Downloads/disparity/'
 # path0_list = os.listdir(depth_dir)
 path0_list = ["TEST"]
 
@@ -39,7 +40,8 @@ for list_path0 in path0_list:
                     depth_list.append(path5)
 
 
-color_dir = "../RGBD/frames_cleanpass_webp/"
+# color_dir = "../RGBD/frames_cleanpass_webp/"
+color_dir = '/home/wenbin/Downloads/frames_cleanpass_webp/'
 # path0_list = os.listdir(depth_dir)
 path0_list = ["TEST"]
 

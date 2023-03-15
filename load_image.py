@@ -34,7 +34,8 @@ class LSHMV_RGBD_Object_Dataset(Dataset):
         color_path = self.color_list[idx]
         depth_path = self.depth_list[idx]
 
-        color_image = Image.fromarray(plt.imread(color_path))
+        # color_image = Image.fromarray(plt.imread(color_path))
+        color_image = Image.fromarray(Image.open(color_path))
 
         if self.channel:
             color_image = color_image.split()[self.channel]
